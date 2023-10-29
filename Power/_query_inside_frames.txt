@@ -7,10 +7,10 @@ def fetch_osm_data(bbox, name):
     ymin, xmin, ymax, xmax = bbox
     api = overpy.Overpass()
     query = f'''
-    [out:json][timeout:500];
+    [out:json][timeout:200];
     (
-        node["power"]({xmin},{ymin},{xmax},{ymax});
-        way["power"]({xmin},{ymin},{xmax},{ymax});
+        node["power"="plant"]({xmin},{ymin},{xmax},{ymax});
+        way["power"="plant"]({xmin},{ymin},{xmax},{ymax});
     );
     (._;>;);
     out body;
@@ -26,8 +26,10 @@ def fetch_osm_data(bbox, name):
         nodes = [feature for feature in result.nodes]
         ways = [feature for feature in result.ways]
         
+        print(f"Found {len(nodes)} nodes and {len(ways)} ways.")
+        
         if len(nodes) == 0 and len(ways) == 0:
-            print(f"No power plants found for {name}")
+            print(f"No features found for {name}")
         
         geojson = {
             "type": "FeatureCollection",
@@ -38,21 +40,21 @@ def fetch_osm_data(bbox, name):
                         "type": "Point",
                         "coordinates": [float(node.lon), float(node.lat)]
                     },
-                    "properties": {k: node.tags.get(k, None) for k in ['generator:output:electricity', 'generator:source']}
+                    "properties": {k: node.tags.get(k, None) for k in ['generator:output:electricity', 'plant:output:electricity', 'generator:source', 'plant:source']}
                 } for node in nodes
             ] + [
                 {
                     "type": "Feature",
                     "geometry": {
                         "type": "Polygon",
-                        "coordinates": [[(float(node.lon), float(node.lat)) for node in way.nodes]]
+                        "coordinates": [[[(float(node.lon), float(node.lat)) for node in way.nodes]]]
                     },
-                    "properties": {k: way.tags.get(k, None) for k in ['generator:output:electricity', 'generator:source']}
+                    "properties": {k: way.tags.get(k, None) for k in ['plant:output:electricity', 'plant:source']}
                 } for way in ways
             ]
         }
-        
-        output_file = f"power_plants_{name}.geojson"
+                
+        output_file = f"powerplants_{name}.geojson"
         with open(output_file, 'w') as f:
             json.dump(geojson, f)
         return output_file
