@@ -1,0 +1,67 @@
+import re
+import pandas as pd
+from qgis.core import QgsProject, QgsField
+from qgis.PyQt.QtCore import QVariant
+
+# Function to convert power values to MegaWatts
+def convert_to_mw(value):
+    value = str(value)
+    if value.lower() in ['null', 'yes']:
+        return None
+    
+    value = value.replace(',', '.')
+    num = re.findall(r"[-+]?\d*\.\d+|\d+", value)
+    if not num:
+        return None
+    
+    num = float(num[0])
+    if 'kw' in value.lower():
+        num /= 1000
+    elif 'gw' in value.lower():
+        num *= 1000
+    
+    return round(num, 3)
+
+# Test the function
+for test_val in ['0.64MW', '240kW', '0.756 MW', 'yes', '7.51 MWp', '30kw', '0,996MW']:
+    print(f"{test_val} -> {convert_to_mw(test_val)}")
+
+# Get the active layer
+layer = iface.activeLayer()
+
+# Check if a layer is selected
+if layer:
+    data = []
+    for feature in layer.getFeatures():
+        attrs = feature.attributes()
+        field_names = [field.name() for field in layer.fields()]
+        feature_data = dict(zip(field_names, attrs))
+        data.append(feature_data)
+    
+    df = pd.DataFrame(data)
+    
+    # Create a new column in the DataFrame
+    df['output'] = df['plant_outp'].apply(convert_to_mw)
+    
+# ... (previous code remains the same)
+
+# Start editing the layer
+layer.startEditing()
+
+# Add a new field to the layer for 'output'
+layer.addAttribute(QgsField('output', QVariant.Double))
+field_index_new = layer.fields().indexOf('output')
+
+# Loop through each feature in the layer and each row in the DataFrame simultaneously
+for feature, row in zip(layer.getFeatures(), df.iterrows()):
+    feature_id = feature.id()
+    new_value = row[1]['output']  # row is a tuple (index, Series)
+    
+    try:
+        # Update the 'output' field in the layer with the new value
+        layer.changeAttributeValue(feature_id, field_index_new, new_value)
+    except Exception as e:
+        print(f"An error occurred while updating feature {feature_id}: {e}")
+
+# Commit changes
+layer.commitChanges()
