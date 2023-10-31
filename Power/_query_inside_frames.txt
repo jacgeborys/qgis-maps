@@ -18,36 +18,58 @@ def fetch_osm_data(bbox, name):
     
     try:
         print(f"Final Overpass Query: {query}")
-        
+    
         result = api.query(query)
-        
+    
         print(f"Raw API Response: {result}")
-        
+    
         ways = [feature for feature in result.ways]
+        relations = [feature for feature in result.relations]
+    
+        if len(ways) == 0 and len(relations) == 0:
+            print(f"No ways or relations found for {name}")
+    
+        geojson_features = []
+    
+        for way in ways:
+            geojson_features.append({
+                "type": "Feature",
+                "geometry": {
+                    "type": "LineString",
+                    "coordinates": [[float(node.lon), float(node.lat)] for node in way.nodes]
+                },
+                "properties": {k: way.tags.get(k, None) for k in ['plant:output:electricity', 'plant:source']}
+            })
+    
+        for relation in relations:
+            # Here you can decide how you want to handle relations.
+            # For simplicity, let's just take the first way in the relation.
+            if relation.members:
+                way = relation.members[0].resolve()
+                if isinstance(way, overpy.Way):
+                    geojson_features.append({
+                        "type": "Feature",
+                        "geometry": {
+                            "type": "LineString",
+                            "coordinates": [[float(node.lon), float(node.lat)] for node in way.nodes]
+                        },
+                        "properties": {k: relation.tags.get(k, None) for k in ['plant:output:electricity', 'plant:source']}
+                    })
         
-        if len(ways) == 0:
-            print(f"No ways found for {name}")
-        
-        geojson = {
+                geojson = {
             "type": "FeatureCollection",
-            "features": [
-                {
-                    "type": "Feature",
-                    "geometry": {
-                        "type": "LineString",
-                        "coordinates": [[float(node.lon), float(node.lat)] for node in way.nodes]
-                    },
-                    "properties": {k: way.tags.get(k, None) for k in ['plant:output:electricity', 'plant:source']}
-                } for way in ways
-            ]
+            "features": geojson_features
         }
+        
         output_file = f"powerplants_{name}.geojson"
         with open(output_file, 'w') as f:
             json.dump(geojson, f)
         return output_file
+    
     except Exception as e:
         print(f"An error occurred: {e}")
         return None
+
 
 # Get the active layer (the one with the rectangles)
 layer = iface.activeLayer()
