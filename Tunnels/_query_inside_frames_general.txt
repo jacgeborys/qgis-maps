@@ -4,7 +4,7 @@ from geopy.distance import geodesic
 import overpy
 import json
 
-ef fetch_osm_data(bbox, city_name):
+def fetch_osm_data(bbox, city_name):
     ymin, xmin, ymax, xmax = bbox
     api = overpy.Overpass()
     query = f'''
@@ -75,7 +75,7 @@ if layer:
         output_file = fetch_osm_data(bbox, city_name)
         
         if output_file:
-            vlayer = QgsVectorLayer(output_file, f"Cycleways in {city_name}", "ogr")
+            vlayer = QgsVectorLayer(output_file, f"Tunnels in {city_name}", "ogr")
             
             if not vlayer.isValid():
                 print(f"Layer failed to load for {city_name}!")
