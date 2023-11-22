@@ -1,0 +1,89 @@
+from qgis.core import QgsVectorLayer, QgsProject
+from qgis.core import QgsCoordinateReferenceSystem, QgsCoordinateTransform, QgsProject
+import overpy
+import json
+
+def fetch_osm_data(bbox, city_name):
+    ymin, xmin, ymax, xmax = bbox
+    api = overpy.Overpass()
+    query = f'''
+    [out:json][timeout:50];
+    (
+        node["amenity"~"restaurant|bar|cafe|fast_food"]({xmin},{ymin},{xmax},{ymax});
+        way["amenity"~"restaurant|bar|cafe|fast_food"]({xmin},{ymin},{xmax},{ymax});
+        relation["amenity"~"restaurant|bar|cafe|fast_food"]({xmin},{ymin},{xmax},{ymax});
+    );
+    (._;>;);
+    out body;
+    '''
+    
+    try:
+        print(f"Final Overpass Query: {query}")
+        
+        result = api.query(query)
+        
+        print(f"Raw API Response: {result}")
+        
+        features = []
+        for element in result.nodes + result.ways + result.relations:
+            if isinstance(element, overpy.Node):
+                geometry = {
+                    "type": "Point",
+                    "coordinates": [float(element.lon), float(element.lat)]
+                }
+            elif isinstance(element, (overpy.Way, overpy.Relation)):
+                geometry = {
+                    "type": "Polygon",
+                    "coordinates": [[(float(node.lon), float(node.lat)) for node in element.get_nodes(resolve_missing=True)]]
+                }
+            else:
+                continue
+        
+            features.append({
+                "type": "Feature",
+                "geometry": geometry,
+                "properties": {k: element.tags.get(k, None) for k in ['amenity', 'name']}
+            })
+        
+        if len(features) == 0:
+            print(f"No gastronomy establishments found for {city_name}")
+        
+        geojson = {
+            "type": "FeatureCollection",
+            "features": features
+        }
+        output_file = f"gastronomy_{city_name}.geojson"
+        with open(output_file, 'w') as f:
+            json.dump(geojson, f)
+        return output_file
+    except Exception as e:
+        print(f"An error occurred: {e}")
+        return None
+
+# Get the active layer (the one with the rectangles)
+layer = iface.activeLayer()
+
+# Check if a layer is selected
+if layer:
+    source_crs = layer.crs()
+    dest_crs = QgsCoordinateReferenceSystem(4326)
+    transform = QgsCoordinateTransform(source_crs, dest_crs, QgsProject.instance())
+    
+    for feature in layer.getFeatures():
+        geom = feature.geometry()
+        geom.transform(transform)
+        bbox = geom.boundingBox().toRectF().getCoords()
+        city_name = feature['City_Name']
+        print(f"Fetching data for {city_name} with bounding box {bbox}")
+        
+        output_file = fetch_osm_data(bbox, city_name)
+        
+        if output_file:
+            vlayer = QgsVectorLayer(output_file, f"Gastronomy in {city_name}", "ogr")
+            
+            if not vlayer.isValid():
+                print(f"Layer failed to load for {city_name}!")
+            else:
+                QgsProject.instance().addMapLayer(vlayer)
+else:
+    print("No active layer selected!")

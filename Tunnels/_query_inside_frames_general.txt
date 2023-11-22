@@ -11,6 +11,7 @@ def fetch_osm_data(bbox, city_name):
     [out:json][timeout:50];
     (
         way["highway"~"primary|secondary|tertiary|motorway|motorway_link|trunk"]["tunnel"="yes"]({xmin},{ymin},{xmax},{ymax});
+        way["railway"~"rail|subway|tram|light_rail"]["tunnel"="yes"]({xmin},{ymin},{xmax},{ymax});
     );
     (._;>;);
     out body;
