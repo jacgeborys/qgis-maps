@@ -1,5 +1,6 @@
 from qgis.core import QgsVectorLayer, QgsProject
 from qgis.core import QgsCoordinateReferenceSystem, QgsCoordinateTransform, QgsProject
+from shapely.geometry import Polygon, Point
 import overpy
 import json
 
@@ -9,9 +10,9 @@ def fetch_osm_data(bbox, city_name):
     query = f'''
     [out:json][timeout:50];
     (
-        node["amenity"~"restaurant|bar|cafe|fast_food"]({xmin},{ymin},{xmax},{ymax});
-        way["amenity"~"restaurant|bar|cafe|fast_food"]({xmin},{ymin},{xmax},{ymax});
-        relation["amenity"~"restaurant|bar|cafe|fast_food"]({xmin},{ymin},{xmax},{ymax});
+        node["amenity"~"restaurant|bar|pub|night_club|cafe|fast_food"]({xmin},{ymin},{xmax},{ymax});
+        way["amenity"~"restaurant|bar|pub|night_club|cafe|fast_food"]({xmin},{ymin},{xmax},{ymax});
+        relation["amenity"~"restaurant|bar|pub|night_club|cafe|fast_food"]({xmin},{ymin},{xmax},{ymax});
     );
     (._;>;);
     out body;
@@ -27,24 +28,22 @@ def fetch_osm_data(bbox, city_name):
         features = []
         for element in result.nodes + result.ways + result.relations:
             if isinstance(element, overpy.Node):
-                geometry = {
-                    "type": "Point",
-                    "coordinates": [float(element.lon), float(element.lat)]
-                }
+                point = Point(float(element.lon), float(element.lat))
             elif isinstance(element, (overpy.Way, overpy.Relation)):
-                geometry = {
-                    "type": "Polygon",
-                    "coordinates": [[(float(node.lon), float(node.lat)) for node in element.get_nodes(resolve_missing=True)]]
-                }
+                polygon = Polygon([(float(node.lon), float(node.lat)) for node in element.get_nodes(resolve_missing=True)])
+                point = polygon.centroid
             else:
                 continue
-        
+
             features.append({
                 "type": "Feature",
-                "geometry": geometry,
+                "geometry": {
+                    "type": "Point",
+                    "coordinates": [point.x, point.y]
+                },
                 "properties": {k: element.tags.get(k, None) for k in ['amenity', 'name']}
             })
-        
+
         if len(features) == 0:
             print(f"No gastronomy establishments found for {city_name}")
         
