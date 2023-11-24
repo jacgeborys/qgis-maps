@@ -1,6 +1,6 @@
 from qgis.core import QgsVectorLayer, QgsProject
 from qgis.core import QgsCoordinateReferenceSystem, QgsCoordinateTransform, QgsProject
-from shapely.geometry import Polygon, Point
+from shapely.geometry import Polygon, Point, MultiPoint
 import overpy
 import json
 
@@ -8,11 +8,26 @@ def fetch_osm_data(bbox, city_name):
     ymin, xmin, ymax, xmax = bbox
     api = overpy.Overpass()
     query = f'''
-    [out:json][timeout:50];
+    [out:json][timeout:200];
     (
-        node["amenity"~"restaurant|bar|pub|night_club|cafe|fast_food"]({xmin},{ymin},{xmax},{ymax});
-        way["amenity"~"restaurant|bar|pub|night_club|cafe|fast_food"]({xmin},{ymin},{xmax},{ymax});
-        relation["amenity"~"restaurant|bar|pub|night_club|cafe|fast_food"]({xmin},{ymin},{xmax},{ymax});
+        node["amenity"="restaurant"]({xmin},{ymin},{xmax},{ymax});
+        node["amenity"="bar"]({xmin},{ymin},{xmax},{ymax});
+        node["amenity"="pub"]({xmin},{ymin},{xmax},{ymax});
+        node["amenity"="nightclub"]({xmin},{ymin},{xmax},{ymax});
+        node["amenity"="cafe"]({xmin},{ymin},{xmax},{ymax});
+        node["amenity"="fast_food"]({xmin},{ymin},{xmax},{ymax});
+        way["amenity"="restaurant"]({xmin},{ymin},{xmax},{ymax});
+        way["amenity"="bar"]({xmin},{ymin},{xmax},{ymax});
+        way["amenity"="pub"]({xmin},{ymin},{xmax},{ymax});
+        way["amenity"="nightclub"]({xmin},{ymin},{xmax},{ymax});
+        way["amenity"="cafe"]({xmin},{ymin},{xmax},{ymax});
+        way["amenity"="fast_food"]({xmin},{ymin},{xmax},{ymax});
+        relation["amenity"="restaurant"]({xmin},{ymin},{xmax},{ymax});
+        relation["amenity"="bar"]({xmin},{ymin},{xmax},{ymax});
+        relation["amenity"="pub"]({xmin},{ymin},{xmax},{ymax});
+        relation["amenity"="nightclub"]({xmin},{ymin},{xmax},{ymax});
+        relation["amenity"="cafe"]({xmin},{ymin},{xmax},{ymax});
+        relation["amenity"="fast_food"]({xmin},{ymin},{xmax},{ymax});
     );
     (._;>;);
     out body;
@@ -26,23 +41,59 @@ def fetch_osm_data(bbox, city_name):
         print(f"Raw API Response: {result}")
         
         features = []
-        for element in result.nodes + result.ways + result.relations:
-            if isinstance(element, overpy.Node):
-                point = Point(float(element.lon), float(element.lat))
-            elif isinstance(element, (overpy.Way, overpy.Relation)):
-                polygon = Polygon([(float(node.lon), float(node.lat)) for node in element.get_nodes(resolve_missing=True)])
-                point = polygon.centroid
-            else:
-                continue
+        processed_nodes = set()
 
-            features.append({
-                "type": "Feature",
-                "geometry": {
-                    "type": "Point",
-                    "coordinates": [point.x, point.y]
-                },
-                "properties": {k: element.tags.get(k, None) for k in ['amenity', 'name']}
-            })
+        for way in result.ways:
+            try:
+                polygon = Polygon([(float(node.lon), float(node.lat)) for node in way.get_nodes(resolve_missing=True)])
+                if polygon.is_valid:
+                    point = polygon.centroid
+                    properties = {k: way.tags.get(k, None) for k in ['amenity', 'name']}
+                    if properties['amenity'] is not None:  # Check if 'amenity' is not None
+                        features.append({
+                            "type": "Feature",
+                            "geometry": {
+                                "type": "Point",
+                                "coordinates": [point.x, point.y]
+                            },
+                            "properties": properties
+                        })
+            except Exception as e:
+                print(f"Error processing way: {e}")
+    
+        for relation in result.relations:
+            try:
+                points = [Point(float(node.lon), float(node.lat)) for node in relation.get_nodes(resolve_missing=True)]
+                if len(points) >= 3:
+                    multipoint = MultiPoint(points)
+                    point = multipoint.centroid
+                    properties = {k: relation.tags.get(k, None) for k in ['amenity', 'name']}
+                    if properties['amenity'] is not None:  # Check if 'amenity' is not None
+                        features.append({
+                            "type": "Feature",
+                            "geometry": {
+                                "type": "Point",
+                                "coordinates": [point.x, point.y]
+                            },
+                            "properties": properties
+                        })
+            except Exception as e:
+                print(f"Error processing relation: {e}")
+    
+        for node in result.nodes:
+            if node.id not in processed_nodes:
+                properties = {k: node.tags.get(k, None) for k in ['amenity', 'name']}
+                if properties['amenity'] is not None:  # Check if 'amenity' is not None
+                    point = Point(float(node.lon), float(node.lat))
+                    features.append({
+                        "type": "Feature",
+                        "geometry": {
+                            "type": "Point",
+                            "coordinates": [point.x, point.y]
+                        },
+                        "properties": properties
+                    })
+                    processed_nodes.add(node.id)
 
         if len(features) == 0:
             print(f"No gastronomy establishments found for {city_name}")

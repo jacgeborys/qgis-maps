@@ -10,7 +10,8 @@ def fetch_osm_data(bbox, city_name):
     query = f'''
     [out:json][timeout:50];
     (
-        way["highway"~"primary|secondary|tertiary|motorway|motorway_link|trunk"]["tunnel"="yes"]({xmin},{ymin},{xmax},{ymax});
+        way["highway"~"primary|secondary|tertiary|motorway|trunk"]["tunnel"="yes"]({xmin},{ymin},{xmax},{ymax});
+        way["highway"~"primary|secondary|tertiary|motorway|trunk"]["bridge"~"yes|viaduct"]({xmin},{ymin},{xmax},{ymax});
     );
     (._;>;);
     out body;
@@ -37,17 +38,27 @@ def fetch_osm_data(bbox, city_name):
             for i in range(len(coordinates) - 1):
                 length += geodesic(coordinates[i][::-1], coordinates[i+1][::-1]).meters
             
-            if length >= 20:  # Filter out tunnels shorter than 20m
+            if length >= 20:  # Filter out structures shorter than 20m
+                properties = {key: way.tags.get(key, None) for key in ['highway', 'railway', 'bridge', 'structure']}
                 geojson_features.append({
                     "type": "Feature",
                     "geometry": {
                         "type": "LineString",
                         "coordinates": coordinates
                     },
-                    "properties": {**way.tags, "length": length}
+                    "properties": properties
                 })
         
-        output_file = f"tunnels_{city_name}.geojson"
+        output_file = f"rail_structures_{city_name}.geojson"
+        with open(output_file, 'w') as f:
+            json.dump({"type": "FeatureCollection", "features": geojson_features}, f)
+        
+        return output_file
+    except Exception as e:
+        print(f"An error occurred: {e}")
+        return None
+        
+        output_file = f"structures_{city_name}.geojson"
         with open(output_file, 'w') as f:
             json.dump({"type": "FeatureCollection", "features": geojson_features}, f)
         
@@ -75,7 +86,7 @@ if layer:
         output_file = fetch_osm_data(bbox, city_name)
         
         if output_file:
-            vlayer = QgsVectorLayer(output_file, f"Tunnels in {city_name}", "ogr")
+            vlayer = QgsVectorLayer(output_file, f"structures in {city_name}", "ogr")
             
             if not vlayer.isValid():
                 print(f"Layer failed to load for {city_name}!")
