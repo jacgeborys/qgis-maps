@@ -1,5 +1,6 @@
 from qgis.core import QgsVectorLayer, QgsProject
 from qgis.core import QgsCoordinateReferenceSystem, QgsCoordinateTransform, QgsProject
+from shapely.geometry import Point, Polygon
 import overpy
 import json
 
@@ -9,12 +10,13 @@ def fetch_osm_data(bbox, city_name):
     query = f'''
     [out:json][timeout:50];
     (
-        node["railway"="subway_entrance"]({xmin},{ymin},{xmax},{ymax});
         node["railway"="tram_stop"]({xmin},{ymin},{xmax},{ymax});
         node["railway"="station"]({xmin},{ymin},{xmax},{ymax});
         node["railway"="stop"]({xmin},{ymin},{xmax},{ymax});
         node["railway"="halt"]({xmin},{ymin},{xmax},{ymax});
-
+        way["railway"="station"]["subway"="yes"]({xmin},{ymin},{xmax},{ymax});
+        way["railway"="station"]["tram"="yes"]({xmin},{ymin},{xmax},{ymax});
+        way["railway"="station"]["light_rail"="yes"]({xmin},{ymin},{xmax},{ymax});
     );
     (._;>;);
     out body;
@@ -27,23 +29,35 @@ def fetch_osm_data(bbox, city_name):
         
         print(f"Raw API Response: {result}")
         
-        nodes = [feature for feature in result.nodes]
+        features = []
+        for element in result.nodes + result.ways:
+            if isinstance(element, overpy.Node):
+                point = Point(float(element.lon), float(element.lat))
+            elif isinstance(element, overpy.Way):
+                polygon = Polygon([(float(node.lon), float(node.lat)) for node in element.nodes])
+                point = polygon.centroid
+            else:
+                continue
         
-        if len(nodes) == 0:
-            print(f"No nodes found for {city_name}")
-        
-        geojson = {
-            "type": "FeatureCollection",
-            "features": [
-                {
+            properties = {k: element.tags.get(k, None) for k in ['railway', 'name', 'light_rail', 'subway', 'tram', 'train']}
+            
+            # Check if 'railway' property is not null
+            if properties['railway'] is not None:
+                features.append({
                     "type": "Feature",
                     "geometry": {
                         "type": "Point",
-                        "coordinates": [float(node.lon), float(node.lat)]
+                        "coordinates": [point.x, point.y]
                     },
-                    "properties": {k: node.tags.get(k, None) for k in ['railway', 'name']}
-                } for node in nodes
-            ]
+                    "properties": properties
+                })
+        
+        if len(features) == 0:
+            print(f"No transit stops found for {city_name}")
+        
+        geojson = {
+            "type": "FeatureCollection",
+            "features": features
         }
         output_file = f"transit_{city_name}.geojson"
         with open(output_file, 'w') as f:
