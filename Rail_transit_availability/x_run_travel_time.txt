@@ -1,0 +1,72 @@
+import time
+import processing
+from qgis.core import (QgsVectorLayer, QgsProject, QgsProcessingFeatureSourceDefinition, 
+                        QgsFeatureRequest, QgsFeature, QgsGeometry, QgsField, QgsFields, 
+                        QgsWkbTypes, QgsVectorFileWriter)
+
+# Load the layer
+input_layer_path = "C:\\Users\\Asus\\OneDrive\\Pulpit\\Rozne\\QGIS\\Git\\transit_Miami.geojson"
+layer = QgsVectorLayer(input_layer_path, "transit_Miami", "ogr")
+if not layer.isValid():
+    raise Exception("Layer failed to load!")
+
+# Add the layer to the project
+QgsProject.instance().addMapLayer(layer)
+
+# Create an in-memory layer to store the merged results
+merged_layer = QgsVectorLayer("Polygon?crs=epsg:4326", "Merged Isochrones", "memory")
+merged_dp = merged_layer.dataProvider()
+merged_fields = QgsFields()
+merged_fields.append(QgsField("id", QVariant.Int))
+merged_dp.addAttributes(merged_fields)
+merged_layer.updateFields()
+
+def run_travel_time_in_chunks(layer, initial_chunk_size=10, initial_delay_seconds=62):
+    total_features = layer.featureCount()
+    chunk_size = initial_chunk_size
+    
+    for chunk_index in range(0, total_features, chunk_size):
+        current_chunk_size = min(chunk_size, total_features - chunk_index)
+        layer.selectByExpression(f"$id >= {chunk_index} AND $id < {chunk_index + current_chunk_size}")
+                
+        try:
+            processing.run("ttp_v4:time_map_simple", {
+                'INPUT_SEARCHES': QgsProcessingFeatureSourceDefinition(layer.id(), selectedFeaturesOnly=True, featureLimit=-1, geometryCheck=QgsFeatureRequest.GeometryAbortOnInvalid),
+                'INPUT_ID': "'searches_' || $id",
+                'INPUT_SEARCH_TYPE': 0,
+                'INPUT_TRNSPT_TYPE': 4,
+                'INPUT_TIME': '2023-11-26T13:00:00',
+                'SETTINGS_TIMEZONE': 497,
+                'SETTINGS_ROBUST_MODE': False,
+                'OUTPUT': 'TEMPORARY_OUTPUT',
+                'INPUT_TRAVEL_TIME': 10,
+                'INPUT_EXISTING_FIELDS_TO_KEEP': ['railway', 'name'],
+                'INPUT_LEVEL_OF_DETAIL': 0,
+                'INPUT_SINGLE_SHAPE': False,
+                'INPUT_NO_HOLES': False,
+                'OUTPUT_RESULT_TYPE': 0
+            })
+            
+            # Append the result to the merged layer
+            for feature in result['OUTPUT'].getFeatures():
+                new_feature = QgsFeature()
+                new_feature.setGeometry(feature.geometry())
+                new_feature.setFields(merged_fields)
+                new_feature['id'] = feature['id']
+                merged_dp.addFeature(new_feature)
+        
+        except Exception as e:
+            print(f"Error occurred: {e}")
+            if "exceeded the maximum number of requests per minute" in str(e):
+                print("Waiting before retrying...")
+                time.sleep(delay_seconds)
+                delay_seconds += 30  # Increase delay for next iteration
+            else:
+                raise e
+        
+        # Deselect features after processing
+        layer.deselect(layer.selectedFeatureIds())
+        time.sleep(delay_seconds)
+
+# Run the function
+run_travel_time_in_chunks(layer)

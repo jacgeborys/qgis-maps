@@ -1,0 +1,45 @@
+import requests
+import geopandas as gpd
+import time
+from shapely.geometry import shape
+
+# Load tram stops from GeoJSON file
+file_path = r"C:\Users\Asus\OneDrive\Pulpit\Rozne\QGIS\Git\Rail_transit_availability\SHP\stops_centroids.shp"
+tram_stops = gpd.read_file(file_path)
+
+# Your GraphHopper API key
+api_key = "ee1d380a-fa18-4168-992c-59cb7702875d"
+
+# Initialize a list to store isochrone polygons in WKT format
+isochrone_polygons = []
+
+# Output file path
+output_file_path = r"C:\Users\Asus\OneDrive\Pulpit\Rozne\QGIS\Git\Rail_transit_availability\SHP\isochrones_8_12_15.shp"
+
+# Iterate over tram stops
+for index, stop in tram_stops.iterrows():
+    lat, lon = stop.geometry.y, stop.geometry.x
+    
+    # API URL for 8-minute walk isochrone
+    url = f"https://graphhopper.com/api/1/isochrone?point={lat},{lon}&time_limit=460&vehicle=foot&key={api_key}"
+    
+    # Make the GET request
+    response = requests.get(url)
+    
+    if response.status_code == 200:
+        # Extract isochrone polygon data
+        isochrone_data = response.json()
+        for polygon in isochrone_data['polygons']:
+            # Convert GeoJSON to Shapely geometry and then to WKT
+            shapely_geom = shape(polygon['geometry'])
+            wkt_geom = shapely_geom.wkt
+            isochrone_polygons.append(wkt_geom)
+        
+        # Save progress after each point
+        isochrone_gdf = gpd.GeoDataFrame(geometry=gpd.GeoSeries.from_wkt(isochrone_polygons))
+        isochrone_gdf.to_file(output_file_path)
+    else:
+        print(f"Error with stop at {lat},{lon}: {response.text}")
+    
+    # Wait for a few seconds before processing the next point
+    time.sleep(5)  # Adjust the sleep time as needed to comply with API rate limits

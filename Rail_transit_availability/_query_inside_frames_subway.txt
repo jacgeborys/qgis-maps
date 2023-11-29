@@ -38,23 +38,38 @@ def fetch_osm_data(bbox, city_name):
                 point = polygon.centroid
             else:
                 continue
-        
-            properties = {k: element.tags.get(k, None) for k in ['railway', 'name', 'light_rail', 'subway', 'tram', 'train']}
             
-            # Check if 'railway' property is not null
-            if properties['railway'] is not None:
+            properties = {k: element.tags.get(k, None) for k in ['railway', 'name', 'light_rail', 'subway', 'tram', 'train', 'monorail']}
+            
+            # Check for 'tram_stop' in 'railway' and convert it to 'tram'
+            if properties.get('railway') == 'tram_stop':
+                railway_type = 'tram'
+            else:
+                # Determine the railway type based on priority
+                railway_type = None
+                for key in ['light_rail', 'subway', 'tram', 'monorail']:
+                    if properties.get(key) == 'yes':
+                        railway_type = key
+                        break
+                if railway_type is None and properties.get('train') == 'yes':
+                    railway_type = 'train'
+            
+            # Update the 'railway' property and keep only relevant properties
+            if railway_type:
+                properties['railway'] = railway_type
+                relevant_properties = {k: v for k, v in properties.items() if k in ['railway', 'name']}
+            
                 features.append({
                     "type": "Feature",
                     "geometry": {
                         "type": "Point",
                         "coordinates": [point.x, point.y]
                     },
-                    "properties": properties
+                    "properties": relevant_properties
                 })
-        
+                    
         if len(features) == 0:
-            print(f"No transit stops found for {city_name}")
-        
+            print(f"No transit stops found for {city_name}")        
         geojson = {
             "type": "FeatureCollection",
             "features": features
@@ -80,7 +95,7 @@ if layer:
         geom = feature.geometry()
         geom.transform(transform)
         bbox = geom.boundingBox().toRectF().getCoords()
-        city_name = feature['City_Name']
+        city_name = feature['Name_EN']
         print(f"Fetching data for {city_name} with bounding box {bbox}")
         
         output_file = fetch_osm_data(bbox, city_name)

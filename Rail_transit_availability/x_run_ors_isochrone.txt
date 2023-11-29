@@ -1,0 +1,54 @@
+import processing
+import time
+from qgis.core import QgsVectorLayer, QgsFeature, QgsProject
+from qgis.utils import iface
+
+# Function to create an in-memory layer from a list of features
+def create_temp_layer(features, layer):
+    temp_layer = QgsVectorLayer("Point?crs=epsg:4326", "temp", "memory")
+    temp_layer_data = temp_layer.dataProvider()
+    temp_layer_data.addAttributes(layer.fields())
+    temp_layer.updateFields()
+    for feature in features:
+        temp_layer_data.addFeature(feature)
+    QgsProject.instance().addMapLayer(temp_layer, False)
+    return temp_layer
+
+# Function to process a chunk of features
+def process_chunk(features, output_path, append=False):
+    temp_layer = create_temp_layer(features, layer)
+    processing.run("ORS Tools:isochrones_from_layer", {
+        'INPUT_PROVIDER': 0,
+        'INPUT_PROFILE': 6,
+        'INPUT_POINT_LAYER': temp_layer,
+        'INPUT_FIELD': 'id',
+        'INPUT_METRIC': 0,
+        'INPUT_RANGES': '20',
+        'INPUT_AVOID_FEATURES': [],
+        'INPUT_AVOID_BORDERS': None,
+        'INPUT_AVOID_COUNTRIES': '',
+        'INPUT_AVOID_POLYGONS': None,
+        'OUTPUT': output_path
+    }, is_child_algorithm=True)
+    QgsProject.instance().removeMapLayer(temp_layer.id())
+
+# Get the active layer
+layer = iface.activeLayer()
+if not layer or not layer.isValid():
+    raise Exception("No valid active layer found!")
+
+# Get all selected features
+selected_features = layer.selectedFeatures()
+if not selected_features:
+    raise Exception("No features selected in the active layer!")
+
+# Process in chunks of 20
+chunk_size = 20
+for i in range(0, len(selected_features), chunk_size):
+    chunk = selected_features[i:i+chunk_size]
+    process_chunk(chunk, 'C:/Users/Asus/OneDrive/Pulpit/Rozne/QGIS/Git/Rail_transit_availability/SHP/isochrones_subway_20.shp', append=i != 0)
+    if i + chunk_size < len(selected_features):  # If there are more chunks to process
+        print(f"Processed {i + chunk_size} features, waiting for 60 seconds...")
+        time.sleep(60)  # Wait for 60 seconds
+
+print("Isochrones generated for all selected features.")
