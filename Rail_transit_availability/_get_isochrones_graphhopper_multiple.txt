@@ -1,6 +1,6 @@
 import requests
 import geopandas as gpd
-import pandas as pd  # Import Pandas
+import pandas as pd
 import time
 from shapely.geometry import shape
 import os
@@ -19,34 +19,32 @@ def get_time_limit(railway):
 file_path = r"C:\Users\Asus\OneDrive\Pulpit\Rozne\QGIS\Git\Rail_transit_availability\SHP\stop_centroids_sorted.shp"
 tram_stops = gpd.read_file(file_path)
 
-# Your GraphHopper API key
-api_key = "582b47c0-3140-4aea-8d2e-73d93a51167e"
+# List of GraphHopper API keys
+api_keys = [
+    "3f6441d4-4a71-463e-bb5b-586ba40a138b",
+    "f4028812-9a18-471c-8bb1-96c858a23a6e",
+    "582b47c0-3140-4aea-8d2e-73d93a51167e",
+    "4523e190-103c-46d0-bcc7-d449b08ae864",
+    "ee1d380a-fa18-4168-992c-59cb7702875d"
+]
 
-# Initialize a list to store isochrone polygons with additional data
 isochrone_data = []
-
-# Load the last processed id if exists
 last_processed_id = 0
 last_processed_index_path = "last_processed_index.txt"
+
 try:
     with open(last_processed_index_path, "r") as file:
         last_processed_id = int(file.read())
 except FileNotFoundError:
     pass
 
-# Output file path
 output_file_path = r"C:\Users\Asus\OneDrive\Pulpit\Rozne\QGIS\Git\Rail_transit_availability\SHP\isochrones_8_12_15.shp"
 
-# Check if the output file exists and read it
 if os.path.exists(output_file_path):
     existing_data = gpd.read_file(output_file_path)
 else:
     existing_data = gpd.GeoDataFrame(columns=['geometry', 'railway'])
 
-# Counter for the number of processed stops in this session
-processed_stops_count = 0
-
-# Iterate over tram stops
 for _, stop in tram_stops[tram_stops['id'] > last_processed_id].iterrows():
     lat, lon = stop['latitude'], stop['longitude']
     railway = stop['railway']
@@ -54,39 +52,30 @@ for _, stop in tram_stops[tram_stops['id'] > last_processed_id].iterrows():
     time_limit = get_time_limit(railway)
     url = f"https://graphhopper.com/api/1/isochrone?point={lat},{lon}&time_limit={time_limit}&vehicle=foot&key={api_key}"
     
-    # Make the GET request
     response = requests.get(url)
+    rate_limit_remaining = int(response.headers.get('X-RateLimit-Remaining', 0))
     
     if response.status_code == 200:
         isochrone_json = response.json()
         for polygon in isochrone_json['polygons']:
             geom = shape(polygon['geometry'])
-            isochrone_data.append({
-                'geometry': geom,
-                'railway': railway
-            })
+            isochrone_data.append({'geometry': geom, 'railway': railway, 'id': stop['id']})
         
-        # Print the ID of the processed stop
         print(f"Processed stop with ID: {stop['id']}")
-        
-        # Append new data to the existing DataFrame and save
-        new_data = gpd.GeoDataFrame(isochrone_data, geometry='geometry')
+        new_data = gpd.GeoDataFrame(isochrone_data, geometry='geometry', columns=['geometry', 'railway', 'id'])
         combined_data = pd.concat([existing_data, new_data])
         combined_data.to_file(output_file_path)
         
-        # Update and save the last processed id
         with open(last_processed_index_path, "w") as file:
             file.write(str(stop['id']))
         
-        # Increment the processed stops counter
-        processed_stops_count += 1
+        print(f"Rate Limit Remaining: {rate_limit_remaining}")
+        if rate_limit_remaining <= 100:  # Threshold
+            print("Approaching rate limit, pausing requests.")
+            break
     
     else:
         print(f"Error with stop at {lat},{lon}: {response.text}")
+        time.sleep(60)  # Wait longer before retrying
     
-    # Wait for a few seconds before processing the next point
     time.sleep(10)
-    
-    # Check if the API limit is reached, then break
-    if processed_stops_count >= 650:
-        break
