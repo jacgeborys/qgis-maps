@@ -15,6 +15,12 @@ def get_time_limit(railway):
     else:
         return 480  # default time
 
+def get_isochrone_data(api_key, latitude, longitude, railway_type):
+    time_limit = get_time_limit(railway_type)
+    url = f"https://graphhopper.com/api/1/isochrone?point={latitude},{longitude}&time_limit={time_limit}&vehicle=foot&key={api_key}"
+    response = requests.get(url)
+    return response
+
 # Load tram stops from file
 file_path = r"C:\Users\Asus\OneDrive\Pulpit\Rozne\QGIS\Git\Rail_transit_availability\SHP\stop_centroids_sorted.shp"
 tram_stops = gpd.read_file(file_path)
@@ -46,36 +52,34 @@ else:
     existing_data = gpd.GeoDataFrame(columns=['geometry', 'railway'])
 
 for _, stop in tram_stops[tram_stops['id'] > last_processed_id].iterrows():
-    lat, lon = stop['latitude'], stop['longitude']
-    railway = stop['railway']
-    
-    time_limit = get_time_limit(railway)
-    url = f"https://graphhopper.com/api/1/isochrone?point={lat},{lon}&time_limit={time_limit}&vehicle=foot&key={api_key}"
-    
-    response = requests.get(url)
-    rate_limit_remaining = int(response.headers.get('X-RateLimit-Remaining', 0))
-    
-    if response.status_code == 200:
-        isochrone_json = response.json()
-        for polygon in isochrone_json['polygons']:
-            geom = shape(polygon['geometry'])
-            isochrone_data.append({'geometry': geom, 'railway': railway, 'id': stop['id']})
+    for key in api_keys:
+        response = get_isochrone_data(key, stop['latitude'], stop['longitude'], stop['railway'])
+        rate_limit_remaining = int(response.headers.get('X-RateLimit-Remaining', 0))
         
-        print(f"Processed stop with ID: {stop['id']}")
-        new_data = gpd.GeoDataFrame(isochrone_data, geometry='geometry', columns=['geometry', 'railway', 'id'])
-        combined_data = pd.concat([existing_data, new_data])
-        combined_data.to_file(output_file_path)
-        
-        with open(last_processed_index_path, "w") as file:
-            file.write(str(stop['id']))
-        
-        print(f"Rate Limit Remaining: {rate_limit_remaining}")
-        if rate_limit_remaining <= 100:  # Threshold
-            print("Approaching rate limit, pausing requests.")
-            break
-    
-    else:
-        print(f"Error with stop at {lat},{lon}: {response.text}")
-        time.sleep(60)  # Wait longer before retrying
-    
-    time.sleep(10)
+        if response.status_code == 200:
+            isochrone_json = response.json()
+            for polygon in isochrone_json['polygons']:
+                geom = shape(polygon['geometry'])
+                isochrone_data.append({'geometry': geom, 'railway': stop['railway'], 'id': stop['id']})
+            
+            print(f"Processed stop with ID: {stop['id']}")
+            new_data = gpd.GeoDataFrame(isochrone_data, geometry='geometry')
+            combined_data = pd.concat([existing_data, new_data])
+            combined_data.to_file(output_file_path)
+            
+            with open(last_processed_index_path, "w") as file:
+                file.write(str(stop['id']))
+            
+            print(f"Rate Limit Remaining: {rate_limit_remaining}")
+            break  # Break out of the API key loop after successful processing
+            
+        elif rate_limit_remaining <= 100:
+            print(f"Switching API key due to rate limit on key: {key}")
+            continue  # Continue to the next API key
+            
+        else:
+            print(f"Error with stop at {stop['latitude']}, {stop['longitude']}: {response.text}")
+            time.sleep(60)  # Wait before retrying
+            break  # Break out of the API key loop to retry with the same key
+            
+    time.sleep(10)  # Sleep between different stops
