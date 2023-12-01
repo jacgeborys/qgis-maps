@@ -3,86 +3,95 @@ import overpy
 import json
 import time
 
-def split_bbox_into_quadrants(bbox):
+def split_bbox_into_smaller_regions(bbox):
     minx, miny, maxx, maxy = bbox
     midx, midy = (minx + maxx) / 2, (miny + maxy) / 2
-    return [
-        (minx, miny, midx, midy),
-        (midx, miny, maxx, midy),
-        (minx, midy, midx, maxy),
-        (midx, midy, maxx, maxy)
-    ]
+    q1x, q1y = (minx + midx) / 2, (miny + midy) / 2
+    q3x, q3y = (midx + maxx) / 2, (midy + maxy) / 2
 
-def fetch_buildings_for_quadrant(api, quadrant):
-    query = f'''
-    [out:json][timeout:2000];
-    (
-        way["building"]({quadrant[1]},{quadrant[0]},{quadrant[3]},{quadrant[2]});
-    );
-    (._;>;);
-    out body;
-    '''
-    result = api.query(query)
-    return [feature for feature in result.ways]
+    return [
+        (minx, miny, q1x, q1y),
+        (q1x, miny, midx, q1y),
+        (midx, miny, q3x, q1y),
+        (q3x, miny, maxx, q1y),
+        (minx, q1y, q1x, midy),
+        (q1x, q1y, midx, midy),
+        (midx, q1y, q3x, midy),
+        (q3x, q1y, maxx, midy),
+        (minx, midy, q1x, q3y),
+        (q1x, midy, midx, q3y),
+        (midx, midy, q3x, q3y),
+        (q3x, midy, maxx, q3y),
+        (minx, q3y, q1x, maxy),
+        (q1x, q3y, midx, maxy),
+        (midx, q3y, q3x, maxy),
+        (q3x, q3y, maxx, maxy)
+    ]
 
 def fetch_buildings(bbox, name_en):
     api = overpy.Overpass()
-    query = f'''
-    [out:json][timeout:2000];
-    (
-        way["building"]({bbox[1]},{bbox[0]},{bbox[3]},{bbox[2]});
-        relation["building"]({bbox[1]},{bbox[0]},{bbox[3]},{bbox[2]});
-    );
-    (._;>;);
-    out body;
-    '''
+    smaller_regions = split_bbox_into_smaller_regions(bbox)
+    geojson_features = []
 
-    try:
-        result = api.query(query)
-        geojson_features = []
+    for region in smaller_regions:
+        try:
+            query = f'''
+            [out:json][timeout:2000];
+            (
+                way["building"]({region[1]},{region[0]},{region[3]},{region[2]});
+                relation["building"]({region[1]},{region[0]},{region[3]},{region[2]});
+            );
+            (._;>;);
+            out body;
+            '''
+            result = api.query(query)
 
-        for building in result.ways + result.relations:
-            if isinstance(building, overpy.Relation) and building.tags.get("type") == "multipolygon":
-                outer_coords = []
-                inner_coords = []
+            for building in result.ways + result.relations:
+                if isinstance(building, overpy.Relation) and building.tags.get("type") == "multipolygon":
+                    outer_coords = []
+                    inner_coords = []
 
-                for member in building.members:
-                    if member.role == "outer" or member.role == "inner":
-                        member_coords = [[float(node.lon), float(node.lat)] for node in member.resolve().nodes]
-                        if member.role == "outer":
-                            outer_coords.append(member_coords)
-                        else:
-                            inner_coords.append(member_coords)
+                    for member in building.members:
+                        if member.role == "outer" or member.role == "inner":
+                            member_coords = [[float(node.lon), float(node.lat)] for node in member.resolve().nodes]
+                            if member.role == "outer":
+                                outer_coords.append(member_coords)
+                            else:
+                                inner_coords.append(member_coords)
 
-                if outer_coords:
-                    coordinates = [outer_coords] if not inner_coords else [outer_coords, inner_coords]
+                    if outer_coords:
+                        coordinates = [outer_coords] if not inner_coords else [outer_coords, inner_coords]
+                        geojson_features.append({
+                            "type": "Feature",
+                            "geometry": {
+                                "type": "MultiPolygon",
+                                "coordinates": coordinates
+                            },
+                            "properties": {"building": building.tags.get("building", None)}
+                        })
+                elif isinstance(building, overpy.Way):
+                    coordinates = [[float(node.lon), float(node.lat)] for node in building.nodes]
                     geojson_features.append({
                         "type": "Feature",
                         "geometry": {
-                            "type": "MultiPolygon",
-                            "coordinates": coordinates
+                            "type": "Polygon",
+                            "coordinates": [coordinates]
                         },
                         "properties": {"building": building.tags.get("building", None)}
                     })
-            elif isinstance(building, overpy.Way):
-                coordinates = [[float(node.lon), float(node.lat)] for node in building.nodes]
-                geojson_features.append({
-                    "type": "Feature",
-                    "geometry": {
-                        "type": "Polygon",
-                        "coordinates": [coordinates]
-                    },
-                    "properties": {"building": building.tags.get("building", None)}
-                })
 
-        output_file = f"buildings_{name_en}.geojson"
-        with open(output_file, 'w') as f:
-            json.dump({"type": "FeatureCollection", "features": geojson_features}, f)
+            time.sleep(5)  # Short delay between smaller region requests
+        except Exception as e:
+            print(f"An error occurred while fetching smaller region: {e}")
 
-        return output_file
-    except Exception as e:
-        print(f"An error occurred: {e}")
+    if len(geojson_features) == 0:
         return None
+
+    output_file = f"buildings_{name_en}.geojson"
+    with open(output_file, 'w') as f:
+        json.dump({"type": "FeatureCollection", "features": geojson_features}, f)
+
+    return output_file
 
 # Load the shapefile
 shapefile_path = "C:\\Users\\Asus\\OneDrive\\Pulpit\\Rozne\\QGIS\\Git\\_Ogolne\\Arkusze_Miasta.shp"
