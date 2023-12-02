@@ -10,7 +10,7 @@ def fetch_buildings(bbox, name_en):
     query = f'''
     [out:json][timeout:50];
     (
-        way["building"]({ymin},{xmin},{ymax},{xmax});
+        way["building"]({xmin},{ymin},{xmax},{ymax});
     );
     (._;>;);
     out body;
