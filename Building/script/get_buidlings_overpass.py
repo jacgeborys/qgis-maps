@@ -28,61 +28,67 @@ def split_bbox_into_smaller_regions(bbox):
         (q3x, q3y, maxx, maxy)
     ]
 
-def fetch_buildings(bbox, name_en):
+def fetch_buildings(bbox, name_en, max_retries=3):
     api = overpy.Overpass()
     smaller_regions = split_bbox_into_smaller_regions(bbox)
     geojson_features = []
 
     for region in smaller_regions:
-        try:
-            query = f'''
-            [out:json][timeout:2000];
-            (
-                way["building"]({region[1]},{region[0]},{region[3]},{region[2]});
-                relation["building"]({region[1]},{region[0]},{region[3]},{region[2]});
-            );
-            (._;>;);
-            out body;
-            '''
-            result = api.query(query)
+        retries = 0
+        while retries < max_retries:
+            try:
+                query = f'''
+                [out:json][timeout:2000];
+                (
+                    way["building"]({region[1]},{region[0]},{region[3]},{region[2]});
+                    relation["building"]({region[1]},{region[0]},{region[3]},{region[2]});
+                );
+                (._;>;);
+                out body;
+                '''
+                result = api.query(query)
 
-            for building in result.ways + result.relations:
-                if isinstance(building, overpy.Relation) and building.tags.get("type") == "multipolygon":
-                    outer_coords = []
-                    inner_coords = []
 
-                    for member in building.members:
-                        if member.role == "outer" or member.role == "inner":
-                            member_coords = [[float(node.lon), float(node.lat)] for node in member.resolve().nodes]
-                            if member.role == "outer":
-                                outer_coords.append(member_coords)
-                            else:
-                                inner_coords.append(member_coords)
+                for building in result.ways + result.relations:
+                    if isinstance(building, overpy.Relation) and building.tags.get("type") == "multipolygon":
+                        outer_coords = []
+                        inner_coords = []
 
-                    if outer_coords:
-                        coordinates = [outer_coords] if not inner_coords else [outer_coords, inner_coords]
+                        for member in building.members:
+                            if member.role == "outer" or member.role == "inner":
+                                member_coords = [[float(node.lon), float(node.lat)] for node in member.resolve().nodes]
+                                if member.role == "outer":
+                                    outer_coords.append(member_coords)
+                                else:
+                                    inner_coords.append(member_coords)
+
+                        if outer_coords:
+                            coordinates = [outer_coords] if not inner_coords else [outer_coords, inner_coords]
+                            geojson_features.append({
+                                "type": "Feature",
+                                "geometry": {
+                                    "type": "MultiPolygon",
+                                    "coordinates": coordinates
+                                },
+                                "properties": {"building": building.tags.get("building", None)}
+                            })
+                    elif isinstance(building, overpy.Way):
+                        coordinates = [[float(node.lon), float(node.lat)] for node in building.nodes]
                         geojson_features.append({
                             "type": "Feature",
                             "geometry": {
-                                "type": "MultiPolygon",
-                                "coordinates": coordinates
+                                "type": "Polygon",
+                                "coordinates": [coordinates]
                             },
                             "properties": {"building": building.tags.get("building", None)}
                         })
-                elif isinstance(building, overpy.Way):
-                    coordinates = [[float(node.lon), float(node.lat)] for node in building.nodes]
-                    geojson_features.append({
-                        "type": "Feature",
-                        "geometry": {
-                            "type": "Polygon",
-                            "coordinates": [coordinates]
-                        },
-                        "properties": {"building": building.tags.get("building", None)}
-                    })
 
-            time.sleep(5)  # Short delay between smaller region requests
-        except Exception as e:
-            print(f"An error occurred while fetching smaller region: {e}")
+                time.sleep(5)  # Short delay between smaller region requests
+                break  # Exit the retry loop on success
+            except Exception as e:
+                retries += 1
+                print(f"Retry {retries}/{max_retries} for region {region}: {e}")
+                time.sleep(10)  # Wait before retrying
 
     if len(geojson_features) == 0:
         return None
@@ -94,7 +100,7 @@ def fetch_buildings(bbox, name_en):
     return output_file
 
 # Load the shapefile
-shapefile_path = "C:\\Users\\Asus\\OneDrive\\Pulpit\\Rozne\\QGIS\\Git\\_Ogolne\\Arkusze_Miasta.shp"
+shapefile_path = "C:\\Users\\Asus\\OneDrive\\Pulpit\\Rozne\\QGIS\\Git\\_Ogolne\\Metros_fetching_extent.shp"
 gdf = gpd.read_file(shapefile_path)
 
 # Iterate over each feature

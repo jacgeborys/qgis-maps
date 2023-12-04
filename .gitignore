@@ -3,3 +3,4 @@ Mapa_Praga_Pn.qgz
 *.geojson
 **/*.geojson
 **/x_arch/
+**/*API_keys.txt
