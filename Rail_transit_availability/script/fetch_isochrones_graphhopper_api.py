@@ -22,7 +22,7 @@ def get_isochrone_data(api_key, latitude, longitude, railway_type):
     return response
 
 # Load tram stops from file
-file_path = r"C:\Users\Asus\OneDrive\Pulpit\Rozne\QGIS\Git\Rail_transit_availability\SHP\Warszawa\stops_proposed.shp"
+file_path = r"C:\Users\Asus\OneDrive\Pulpit\Rozne\QGIS\Git\Rail_transit_availability\SHP\Warszawa\stops_M3.shp"
 tram_stops = gpd.read_file(file_path)
 
 # GraphHopper API key
@@ -38,7 +38,7 @@ try:
 except FileNotFoundError:
     pass
 
-output_file_path = r"C:\Users\Asus\OneDrive\Pulpit\Rozne\QGIS\Git\Rail_transit_availability\SHP\Warszawa\isochrones_construction_proposed.shp"
+output_file_path = r"C:\Users\Asus\OneDrive\Pulpit\Rozne\QGIS\Git\Rail_transit_availability\SHP\Warszawa\isochrones_M3.shp"
 
 if os.path.exists(output_file_path):
     existing_data = gpd.read_file(output_file_path)

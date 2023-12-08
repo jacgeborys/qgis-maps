@@ -12,6 +12,10 @@ def fetch_osm_data(bbox, city_name):
     (
         way["railway"~"rail|subway|tram|light_rail"]["tunnel"="yes"]({xmin},{ymin},{xmax},{ymax});
         way["railway"~"rail|subway|tram|light_rail"]["bridge"="yes"]({xmin},{ymin},{xmax},{ymax});
+        way["railway"~"rail|subway|tram|light_rail"]["bridge"="viaduct"]({xmin},{ymin},{xmax},{ymax});
+        way["construction"~"rail|subway|tram|light_rail"]["tunnel"="yes"]({xmin},{ymin},{xmax},{ymax});
+        way["construction"~"rail|subway|tram|light_rail"]["bridge"="yes"]({xmin},{ymin},{xmax},{ymax});
+        way["construction"~"rail|subway|tram|light_rail"]["bridge"="viaduct"]({xmin},{ymin},{xmax},{ymax});
     );
     (._;>;);
     out body;
@@ -19,27 +23,35 @@ def fetch_osm_data(bbox, city_name):
     
     try:
         print(f"Final Overpass Query: {query}")
-        
         result = api.query(query)
-        
         print(f"Raw API Response: {result}")
         
         ways = [feature for feature in result.ways]
-        
         if len(ways) == 0:
             print(f"No ways found for {city_name}")
         
         geojson_features = []
-        
         for way in ways:
             coordinates = [[float(node.lon), float(node.lat)] for node in way.nodes]
-            length = 0.0
+            length = sum(geodesic(coordinates[i][::-1], coordinates[i+1][::-1]).meters for i in range(len(coordinates) - 1))
             
-            for i in range(len(coordinates) - 1):
-                length += geodesic(coordinates[i][::-1], coordinates[i+1][::-1]).meters
-            
-            if length >= 20:  # Filter out structures shorter than 20m
-                properties = {key: way.tags.get(key, None) for key in ['highway', 'railway', 'bridge', 'tunnel']}
+            if length >= 50:  # Filter out structures shorter than 50m
+                # Determine the type of the structure
+                if "bridge" in way.tags and way.tags["bridge"] in ["yes", "viaduct"]:
+                    structure_type = "bridge_construction" if "construction" in way.tags else "bridge"
+                elif "tunnel" in way.tags and way.tags["tunnel"] == "yes":
+                    structure_type = "tunnel_construction" if "construction" in way.tags else "tunnel"
+                else:
+                    structure_type = "other"
+                
+                properties = {
+                    "type": structure_type,
+                    "railway": way.tags.get("railway", None),
+                    "bridge": way.tags.get("bridge", None),
+                    "tunnel": way.tags.get("tunnel", None),
+                    "construction": way.tags.get("construction", None)
+                }
+                
                 geojson_features.append({
                     "type": "Feature",
                     "geometry": {

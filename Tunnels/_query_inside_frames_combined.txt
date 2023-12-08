@@ -1,0 +1,116 @@
+from qgis.core import QgsVectorLayer, QgsProject
+from qgis.core import QgsCoordinateReferenceSystem, QgsCoordinateTransform
+from geopy.distance import geodesic
+import overpy
+import json
+import os
+
+def determine_structure_type(way):
+    is_bridge = "bridge" in way.tags and way.tags["bridge"] in ["yes", "viaduct"]
+    is_tunnel = "tunnel" in way.tags and way.tags["tunnel"] == "yes"
+    is_railway_construction = "railway" in way.tags and way.tags["railway"] == "construction"
+    is_highway_construction = "highway" in way.tags and way.tags["highway"] == "construction"
+    
+    if is_railway_construction:
+        prefix = "rail_construction"
+    elif is_highway_construction:
+        prefix = "road_construction"
+    elif "railway" in way.tags and way.tags["railway"] not in ["no"]:
+        prefix = "rail"
+    elif "highway" in way.tags and way.tags["highway"] not in ["no"]:
+        prefix = "road"
+    else:
+        prefix = "other"
+    
+    if is_bridge:
+        suffix = "bridge"
+    elif is_tunnel:
+        suffix = "tunnel"
+    else:
+        suffix = "other"
+    
+    return f"{prefix}_{suffix}"
+
+def fetch_osm_data(bbox, city_name):
+    ymin, xmin, ymax, xmax = bbox
+    api = overpy.Overpass()
+    query = f'''
+    [out:json][timeout:100];
+    (
+        way["highway"~"primary|secondary|tertiary|motorway|trunk"]["tunnel"="yes"]({xmin},{ymin},{xmax},{ymax});
+        way["highway"~"primary|secondary|tertiary|motorway|trunk"]["bridge"="yes"]({xmin},{ymin},{xmax},{ymax});
+        way["highway"~"primary|secondary|tertiary|motorway|trunk"]["bridge"="viaduct"]({xmin},{ymin},{xmax},{ymax});
+        way["construction"~"primary|secondary|tertiary|motorway|trunk"]["tunnel"="yes"]({xmin},{ymin},{xmax},{ymax});
+        way["construction"~"primary|secondary|tertiary|motorway|trunk"]["bridge"="yes"]({xmin},{ymin},{xmax},{ymax});
+        way["construction"~"primary|secondary|tertiary|motorway|trunk"]["bridge"="viaduct"]({xmin},{ymin},{xmax},{ymax});
+        way["railway"~"rail|subway|tram|light_rail|construction"]["tunnel"="yes"]({xmin},{ymin},{xmax},{ymax});
+        way["railway"~"rail|subway|tram|light_rail|construction"]["bridge"="yes"]({xmin},{ymin},{xmax},{ymax});
+        way["railway"~"rail|subway|tram|light_rail|construction"]["bridge"="viaduct"]({xmin},{ymin},{xmax},{ymax});
+        way["construction"~"rail|subway|tram|light_rail"]["tunnel"="yes"]({xmin},{ymin},{xmax},{ymax});
+        way["construction"~"rail|subway|tram|light_rail"]["bridge"="yes"]({xmin},{ymin},{xmax},{ymax});
+        way["construction"~"rail|subway|tram|light_rail"]["bridge"="viaduct"]({xmin},{ymin},{xmax},{ymax});
+    );
+    (._;>;);
+    out body;
+    '''
+    
+    try:
+        result = api.query(query)
+        ways = [feature for feature in result.ways]
+        if len(ways) == 0:
+            print(f"No ways found for {city_name}")
+            return None
+        
+        geojson_features = []
+        for way in ways:
+            coordinates = [[float(node.lon), float(node.lat)] for node in way.nodes]
+            length = sum(geodesic(coordinates[i][::-1], coordinates[i+1][::-1]).meters for i in range(len(coordinates) - 1))
+            if length >= 50:
+                structure_type = determine_structure_type(way)
+                properties = {
+                    "type": structure_type,
+                    "highway": way.tags.get("highway", None),
+                    "railway": way.tags.get("railway", None),
+                    "bridge": way.tags.get("bridge", None),
+                    "tunnel": way.tags.get("tunnel", None),
+                    "construction": way.tags.get("construction", None)
+                }
+                geojson_features.append({
+                    "type": "Feature",
+                    "geometry": {"type": "LineString", "coordinates": coordinates},
+                    "properties": properties
+                })
+        
+        # Save to a GeoJSON file
+        output_file_path = os.path.join(r"C:\Users\Asus\OneDrive\Pulpit\Rozne\QGIS\Git\Tunnels\SHP\downloaded", f"{city_name}_structures.geojson")
+        with open(output_file_path, 'w') as f:
+            json.dump({"type": "FeatureCollection", "features": geojson_features}, f)
+        
+        return output_file_path
+        
+    except Exception as e:
+        print(f"An error occurred: {e}")
+        return None
+
+layer = iface.activeLayer()
+if layer:
+    source_crs = layer.crs()
+    dest_crs = QgsCoordinateReferenceSystem(4326)
+    transform = QgsCoordinateTransform(source_crs, dest_crs, QgsProject.instance())
+    
+    for feature in layer.getFeatures():
+        geom = feature.geometry()
+        geom.transform(transform)
+        bbox = geom.boundingBox().toRectF().getCoords()
+        city_name = feature['Name_EN']
+        print(f"Fetching data for {city_name} with bounding box {bbox}")
+        
+        output_file_path = fetch_osm_data(bbox, city_name)
+        if output_file_path:
+            vlayer = QgsVectorLayer(output_file_path, f"structures in {city_name}", "ogr")
+            if not vlayer.isValid():
+                print(f"Layer failed to load for {city_name}!")
+            else:
+                QgsProject.instance().addMapLayer(vlayer)
+else:
+    print("No active layer selected!")
