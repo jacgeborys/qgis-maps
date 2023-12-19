@@ -11,10 +11,13 @@ def fetch_osm_data(bbox, city_name):
     (
         way["highway"="cycleway"]({xmin},{ymin},{xmax},{ymax});
         way["cycleway"="lane"]({xmin},{ymin},{xmax},{ymax});
+        way["cycleway"="track"]({xmin},{ymin},{xmax},{ymax});
         way["cycleway:left"="lane"]({xmin},{ymin},{xmax},{ymax});
+        way["cycleway:left"="opposite_lane"]({xmin},{ymin},{xmax},{ymax});
         way["cycleway:left"="track"]({xmin},{ymin},{xmax},{ymax});
         way["cycleway:left"="separate"]({xmin},{ymin},{xmax},{ymax});
         way["cycleway:right"="lane"]({xmin},{ymin},{xmax},{ymax});
+        way["cycleway:right"="opposite_lane"]({xmin},{ymin},{xmax},{ymax});
         way["cycleway:right"="track"]({xmin},{ymin},{xmax},{ymax});
         way["cycleway:right"="separate"]({xmin},{ymin},{xmax},{ymax});
         way["cycleway:both"="lane"]({xmin},{ymin},{xmax},{ymax});
@@ -30,13 +33,12 @@ def fetch_osm_data(bbox, city_name):
         print(f"Final Overpass Query: {query}")
         
         result = api.query(query)
-        
         print(f"Raw API Response: {result}")
         
         ways = [feature for feature in result.ways]
-        
         if len(ways) == 0:
             print(f"No ways found for {city_name}")
+            return None
         
         geojson = {
             "type": "FeatureCollection",
@@ -47,7 +49,17 @@ def fetch_osm_data(bbox, city_name):
                         "type": "LineString",
                         "coordinates": [[float(node.lon), float(node.lat)] for node in way.nodes]
                     },
-                    "properties": way.tags
+                    "properties": {
+                        "highway": way.tags.get("highway", None),
+                        "cycleway": way.tags.get("cycleway", None),
+                        "cycleway:left": way.tags.get("cycleway:left", None),
+                        "cycleway:right": way.tags.get("cycleway:right", None),
+                        "cycleway:both": way.tags.get("cycleway:both", None),
+                        "bicycle": way.tags.get("bicycle", None),
+			"footway": way.tags.get("footway", None),
+			"foot": way.tags.get("foot", None),
+			"segregated": way.tags.get("segregated", None)
+                    }
                 } for way in ways
             ]
         }

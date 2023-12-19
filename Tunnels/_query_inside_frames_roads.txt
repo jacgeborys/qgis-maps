@@ -7,9 +7,6 @@ import json
 def fetch_osm_data(bbox, city_name):
     ymin, xmin, ymax, xmax = bbox
     api = overpy.Overpass()
-def fetch_osm_data(bbox, city_name):
-    ymin, xmin, ymax, xmax = bbox
-    api = overpy.Overpass()
     query = f'''
     [out:json][timeout:50];
     (

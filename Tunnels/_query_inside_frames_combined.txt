@@ -6,7 +6,7 @@ import json
 import os
 
 def determine_structure_type(way):
-    is_bridge = "bridge" in way.tags and way.tags["bridge"] in ["yes", "viaduct"]
+    is_bridge = "bridge" in way.tags and way.tags["bridge"] != "no"
     is_tunnel = "tunnel" in way.tags and way.tags["tunnel"] == "yes"
     is_railway_construction = "railway" in way.tags and way.tags["railway"] == "construction"
     is_highway_construction = "highway" in way.tags and way.tags["highway"] == "construction"
@@ -38,17 +38,13 @@ def fetch_osm_data(bbox, city_name):
     [out:json][timeout:100];
     (
         way["highway"~"primary|secondary|tertiary|motorway|trunk"]["tunnel"="yes"]({xmin},{ymin},{xmax},{ymax});
-        way["highway"~"primary|secondary|tertiary|motorway|trunk"]["bridge"="yes"]({xmin},{ymin},{xmax},{ymax});
-        way["highway"~"primary|secondary|tertiary|motorway|trunk"]["bridge"="viaduct"]({xmin},{ymin},{xmax},{ymax});
+        way["highway"~"primary|secondary|tertiary|motorway|trunk"]["bridge"]["bridge"!="no"]({xmin},{ymin},{xmax},{ymax});
         way["construction"~"primary|secondary|tertiary|motorway|trunk"]["tunnel"="yes"]({xmin},{ymin},{xmax},{ymax});
-        way["construction"~"primary|secondary|tertiary|motorway|trunk"]["bridge"="yes"]({xmin},{ymin},{xmax},{ymax});
-        way["construction"~"primary|secondary|tertiary|motorway|trunk"]["bridge"="viaduct"]({xmin},{ymin},{xmax},{ymax});
+        way["construction"~"primary|secondary|tertiary|motorway|trunk"]["bridge"]["bridge"!="no"]({xmin},{ymin},{xmax},{ymax});
         way["railway"~"rail|subway|tram|light_rail|construction"]["tunnel"="yes"]({xmin},{ymin},{xmax},{ymax});
-        way["railway"~"rail|subway|tram|light_rail|construction"]["bridge"="yes"]({xmin},{ymin},{xmax},{ymax});
-        way["railway"~"rail|subway|tram|light_rail|construction"]["bridge"="viaduct"]({xmin},{ymin},{xmax},{ymax});
+        way["railway"~"rail|subway|tram|light_rail|construction"]["bridge"]["bridge"!="no"]({xmin},{ymin},{xmax},{ymax});
         way["construction"~"rail|subway|tram|light_rail"]["tunnel"="yes"]({xmin},{ymin},{xmax},{ymax});
-        way["construction"~"rail|subway|tram|light_rail"]["bridge"="yes"]({xmin},{ymin},{xmax},{ymax});
-        way["construction"~"rail|subway|tram|light_rail"]["bridge"="viaduct"]({xmin},{ymin},{xmax},{ymax});
+        way["construction"~"rail|subway|tram|light_rail"]["bridge"]["bridge"!="no"]({xmin},{ymin},{xmax},{ymax});
     );
     (._;>;);
     out body;
