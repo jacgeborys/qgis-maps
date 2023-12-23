@@ -100,7 +100,7 @@ def fetch_buildings(bbox, name_en, max_retries=3):
     return output_file
 
 # Load the shapefile
-shapefile_path = "C:\\Users\\Asus\\OneDrive\\Pulpit\\Rozne\\QGIS\\Git\\_Ogolne\\Metros_fetching_extent.shp"
+shapefile_path = "C:\\Users\\Asus\\OneDrive\\Pulpit\\Rozne\\QGIS\\Git\\_Ogolne\\Arkusze_Aglomeracje.shp"
 gdf = gpd.read_file(shapefile_path)
 
 # Iterate over each feature
